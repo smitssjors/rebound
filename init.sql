@@ -1,8 +1,8 @@
-PRAGMA journal_mode=WAL;
-PRAGMA synchronous=NORMAL;
-PRAGMA busy_timeout=5000;
-PRAGMA cache_size=2000;
-PRAGMA mmap_size=134217728; -- 128MB
+-- PRAGMA journal_mode=WAL;
+-- PRAGMA synchronous=NORMAL;
+-- PRAGMA busy_timeout=5000;
+-- PRAGMA cache_size=2000;
+-- PRAGMA mmap_size=134217728; -- 128MB
 
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

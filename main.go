@@ -2,34 +2,39 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	_ "embed"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
-func run(ctx context.Context, getenv func(string) string) error {
+//go:embed init.sql
+var initQuery string
+
+func run(ctx context.Context) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
-	db_file := getenv("DB_FILE")
-	if db_file == "" {
-		db_file = "./rebound.db"
-	}
-	jobStore, err := OpenJobStore(db_file)
-	if err != nil {
-		return fmt.Errorf("failed to open job store: %v", err)
-	}
-	defer jobStore.Close()
+	logger := log.Default()
 
-	ttr, err := time.ParseDuration(getenv("DEFAULT_TTR"))
+	db, err := sql.Open("sqlite3", "./rebound.db")
 	if err != nil {
-		ttr = 2 * time.Minute
+		return err
+	}
+	defer db.Close()
+	if _, err := db.Exec(initQuery); err != nil {
+		return err
 	}
 
-	srv := NewQueueServer(jobStore, ttr)
+	store := NewStore(db)
+
+	srv := NewServer(logger, store)
 	httpServer := &http.Server{Addr: ":3000", Handler: srv}
 
 	// ListenAndServe blocks until the server is shut down.
@@ -49,7 +54,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	log.Println("shutting down")
+	log.Print("shutting down")
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("failed to shutdown server: %v", err)
 	}
@@ -60,7 +65,7 @@ func run(ctx context.Context, getenv func(string) string) error {
 func main() {
 	ctx := context.Background()
 
-	if err := run(ctx, os.Getenv); err != nil {
-		log.Fatalf("Error: %v", err)
+	if err := run(ctx); err != nil {
+		log.Fatalf("error: %v", err)
 	}
 }

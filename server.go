@@ -1,137 +1,126 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
 )
 
-func encode[T any](w http.ResponseWriter, status int, v T) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		return err
-	}
-	return nil
-}
-
-func decode[T any](r *http.Request) (T, error) {
-	var v T
-	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
-		return v, err
-	}
-	return v, nil
-}
-
-type QueueServer struct {
-	http.Handler
-	js         *JobStore
-	defaultTTR time.Duration
-}
-
-func NewQueueServer(js *JobStore, ttr time.Duration) *QueueServer {
-	var srv QueueServer
-
-	srv.js = js
-	srv.defaultTTR = ttr
-
+func NewServer(logger *log.Logger, store Store) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("POST /{queue}", srv.handlePut)
-	mux.HandleFunc("GET /{queue}", srv.handleReserve)
-	mux.HandleFunc("DELETE /{queue}/{id}", srv.handleDelete)
+	mux.Handle("POST /{queue}", handlePut(logger, store))
+	mux.Handle("GET /{queue}", handleReserve(logger, store))
+	mux.Handle("DELETE /{queue}/{id}", handleDelete(logger, store))
 
-	srv.Handler = mux
-	return &srv
+	return mux
 }
 
-func (s *QueueServer) handlePut(w http.ResponseWriter, r *http.Request) {
-	queue := r.PathValue("queue")
-	if queue == "" {
-		http.Error(w, "Queue name is required", http.StatusBadRequest)
-		return
-	}
-
-	type RequestBody struct {
+func handlePut(l *log.Logger, s Store) http.Handler {
+	type request struct {
 		Priority int    `json:"priority"`
 		Delay    string `json:"delay"`
 		TTR      string `json:"ttr"`
 		Body     string `json:"body"`
 	}
 
-	body, err := decode[RequestBody](r)
-	if err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
+	type response struct {
+		Id Id `json:"id"`
 	}
 
-	// Default time.Duration is 0 seconds which is fine.
-	delay, _ := time.ParseDuration(body.Delay)
-	ttr, _ := time.ParseDuration(body.TTR)
+	return http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			queue := r.PathValue("queue")
+			if queue == "" {
+				l.Printf("invalid queue name: %s", queue)
+				http.Error(w, "Queue name is required", http.StatusBadRequest)
+				return
+			}
 
-	if ttr <= 0 {
-		ttr = s.defaultTTR
-	}
+			var req request
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				l.Printf("invalid JSON: %v", err)
+				http.Error(w, "Invalid JSON", http.StatusBadRequest)
+				return
+			}
 
-	id, err := s.js.Put(r.Context(), queue, body.Priority, delay, ttr, body.Body)
-	if err != nil {
-		http.Error(w, "Failed to insert message", http.StatusInternalServerError)
-		return
-	}
+			delay, _ := time.ParseDuration(req.Delay)
+			ttr, _ := time.ParseDuration(req.TTR)
+			if ttr == 0 {
+				ttr = 2 * time.Minute
+			}
 
-	responseBody := struct {
-		Id int64 `json:"id"`
-	}{Id: id}
+			id, err := s.Put(r.Context(), queue, req.Priority, delay, ttr, req.Body)
+			if err != nil {
+				l.Printf("failed to insert message: %v", err)
+				http.Error(w, "Failed to insert message", http.StatusInternalServerError)
+				return
+			}
 
-	if err := encode(w, http.StatusCreated, responseBody); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		return
-	}
+			w.WriteHeader(http.StatusCreated)
+			if err := json.NewEncoder(w).Encode(response{Id: id}); err != nil {
+				l.Printf("failed to encode response: %v", err)
+				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+				return
+			}
+		},
+	)
 }
 
-func (s *QueueServer) handleReserve(w http.ResponseWriter, r *http.Request) {
-	queue := r.PathValue("queue")
-	if queue == "" {
-		http.Error(w, "Queue name is required", http.StatusBadRequest)
-		return
-	}
+func handleReserve(l *log.Logger, s Store) http.Handler {
+	return http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			queue := r.PathValue("queue")
+			if queue == "" {
+				l.Printf("invalid queue name: %s", queue)
+				http.Error(w, "Queue name is required", http.StatusBadRequest)
+				return
+			}
 
-	job, err := s.js.Reserve(r.Context(), queue)
-	if err != nil {
-		if err == sql.ErrNoRows {
+			job, err := s.Reserve(r.Context(), queue)
+			if err != nil {
+				l.Printf("failed to reserve message: %v", err)
+			}
+			if job == nil {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			if err := json.NewEncoder(w).Encode(job); err != nil {
+				l.Printf("failed to encode response: %v", err)
+				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+				return
+			}
+		},
+	)
+}
+
+func handleDelete(l *log.Logger, s Store) http.Handler {
+	return http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			queue := r.PathValue("queue")
+			if queue == "" {
+				l.Printf("invalid queue name: %s", queue)
+				http.Error(w, "Queue name is required", http.StatusBadRequest)
+				return
+			}
+
+			id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+			if err != nil {
+				l.Printf("invalid job ID: %v", err)
+				http.Error(w, "Job ID is required", http.StatusBadRequest)
+				return
+			}
+
+			if err := s.Delete(r.Context(), queue, Id(id)); err != nil {
+				l.Printf("failed to delete message: %v", err)
+				http.Error(w, "Failed to delete message", http.StatusInternalServerError)
+				return
+			}
+
 			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		http.Error(w, "Failed to reserve message", http.StatusInternalServerError)
-		return
-	}
-
-	if err := encode(w, http.StatusOK, job); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		return
-	}
-}
-
-func (s *QueueServer) handleDelete(w http.ResponseWriter, r *http.Request) {
-	queue := r.PathValue("queue")
-	if queue == "" {
-		http.Error(w, "Queue name is required", http.StatusBadRequest)
-		return
-	}
-
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		http.Error(w, "Message ID is required", http.StatusBadRequest)
-		return
-	}
-
-	if err := s.js.Delete(r.Context(), queue, id); err != nil {
-		http.Error(w, "Failed to delete message", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-
+		},
+	)
 }

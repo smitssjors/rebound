@@ -77,7 +77,7 @@ func BenchmarkDelete(b *testing.B) {
 
 func openTestStore(b *testing.B) (Store, *sql.DB, error) {
 	tempdir := b.TempDir()
-	db, err := sql.Open("sqlite3", tempdir+"/rebound.db")
+	db, err := sql.Open("sqlite3", tempdir+"/rebound.db?_mutex=no")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -85,5 +85,6 @@ func openTestStore(b *testing.B) (Store, *sql.DB, error) {
 	if _, err := db.Exec(initQuery); err != nil {
 		return nil, nil, err
 	}
+	db.SetMaxOpenConns(1)
 	return NewStore(db), db, nil
 }

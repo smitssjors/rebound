@@ -18,10 +18,12 @@ import (
 var initQuery string
 
 func openDB(ctx context.Context) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", "./rebound.db")
+	db, err := sql.Open("sqlite3", "./rebound.db?_mutex=no")
 	if err != nil {
 		return nil, err
 	}
+
+	db.SetMaxOpenConns(1)
 
 	if _, err := db.ExecContext(ctx, initQuery); err != nil {
 		return nil, err

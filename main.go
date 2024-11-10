@@ -17,20 +17,30 @@ import (
 //go:embed init.sql
 var initQuery string
 
+func openDB(ctx context.Context) (*sql.DB, error) {
+	db, err := sql.Open("sqlite3", "./rebound.db")
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := db.ExecContext(ctx, initQuery); err != nil {
+		return nil, err
+	}
+
+	return db, nil
+}
+
 func run(ctx context.Context) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
 	logger := log.Default()
 
-	db, err := sql.Open("sqlite3", "./rebound.db")
+	db, err := openDB(ctx)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	if _, err := db.Exec(initQuery); err != nil {
-		return err
-	}
 
 	store := NewStore(db)
 

@@ -1,0 +1,11 @@
+# Allow list of files to include in the Docker image
+*
+
+!go.mod
+!go.sum
+
+!init.sql
+
+!main.go
+!server.go
+!store.go

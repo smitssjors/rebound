@@ -47,7 +47,7 @@ func run(ctx context.Context) error {
 	store := NewStore(db)
 
 	srv := NewServer(logger, store)
-	httpServer := &http.Server{Addr: ":3000", Handler: srv}
+	httpServer := &http.Server{Addr: "0.0.0.0:3000", Handler: srv}
 
 	// ListenAndServe blocks until the server is shut down.
 	// Thus we run it in a goroutine and wait for the interrupt signal

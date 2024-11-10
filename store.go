@@ -26,6 +26,10 @@ type sqliteStore struct {
 }
 
 func (s *sqliteStore) Put(ctx context.Context, q string, pri int, delay time.Duration, ttr time.Duration, body string) (Id, error) {
+	if ttr == 0 {
+		ttr = 2 * time.Minute
+	}
+
 	var id int64
 	err := tx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
 		res, err := tx.ExecContext(

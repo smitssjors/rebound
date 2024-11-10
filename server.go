@@ -48,9 +48,6 @@ func handlePut(l *log.Logger, s Store) http.Handler {
 
 			delay, _ := time.ParseDuration(req.Delay)
 			ttr, _ := time.ParseDuration(req.TTR)
-			if ttr == 0 {
-				ttr = 2 * time.Minute
-			}
 
 			id, err := s.Put(r.Context(), queue, req.Priority, delay, ttr, req.Body)
 			if err != nil {

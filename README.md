@@ -42,11 +42,11 @@ TTR is set appropriately to prevent a job from being processed multiple times.
 To add a job, send a `POST` request to `localhost:3000/{queue-name}` with the
 following JSON payload:
 
-```json
+```jsonc
 {
-  "priority": 5, // Optional, default: 0
-  "delay": "1m", // Optional, default: no delay
-  "ttr": "5m", // Optional, default: 2 minutes
+  "priority": 5,  // Optional, default: 0
+  "delay": "1m",  // Optional, default: no delay
+  "ttr": "5m",    // Optional, default: 2 minutes
   "body": "This is a job"
 }
 ```
@@ -60,7 +60,7 @@ worker crashes), it is placed back in the queue.
 To reserve a job, send a `GET` request to `localhost:3000/{queue-name}`. The
 response will be structured as:
 
-```json
+```jsonc
 {
   "id": 1,
   "queue": "{queue-name}",

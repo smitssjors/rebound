@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"log"
 	"testing"
 	"time"
 )
@@ -86,5 +87,5 @@ func openTestStore(b *testing.B) (Store, *sql.DB, error) {
 		return nil, nil, err
 	}
 	db.SetMaxOpenConns(1)
-	return NewStore(db), db, nil
+	return NewStore(db, log.Default()), db, nil
 }

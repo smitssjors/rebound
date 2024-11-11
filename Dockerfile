@@ -9,5 +9,6 @@ RUN CGO_ENABLED=1 GOOS=linux go build -a -o /go/bin/app
 
 FROM gcr.io/distroless/base-debian12:nonroot
 COPY --from=build /go/bin/app /
+WORKDIR /data
 EXPOSE 3000
 CMD ["/app"]

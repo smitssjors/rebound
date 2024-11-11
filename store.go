@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"log"
 	"time"
 )
 
@@ -23,6 +24,7 @@ type Store interface {
 
 type sqliteStore struct {
 	db *sql.DB
+	l  *log.Logger
 }
 
 func (s *sqliteStore) Put(ctx context.Context, q string, pri int, delay time.Duration, ttr time.Duration, body string) (Id, error) {
@@ -64,14 +66,13 @@ func (s *sqliteStore) Reserve(ctx context.Context, q string) (*Job, error) {
 		now := time.Now().Unix()
 		row := tx.QueryRowContext(
 			ctx,
-			"UPDATE messages SET locked_until = (? + ttr) WHERE id = (SELECT id FROM messages WHERE queue = ? AND locked_until <= ? ORDER BY priority DESC LIMIT 1) RETURNING id, queue, priority, body",
+			"UPDATE messages SET locked_until = (? + ttr) WHERE id = (SELECT id FROM messages WHERE queue = ? AND locked_until <= ? ORDER BY priority ASC LIMIT 1) RETURNING id, queue, priority, body",
 			now,
 			q,
 			now,
 		)
 
 		return row.Scan(&job.Id, &job.Queue, &job.Priority, &job.Body)
-
 	})
 
 	if err != nil {
@@ -86,20 +87,33 @@ func (s *sqliteStore) Reserve(ctx context.Context, q string) (*Job, error) {
 
 func (s *sqliteStore) Delete(ctx context.Context, q string, id Id) error {
 	err := tx(ctx, s.db, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(
+		res, err := tx.ExecContext(
 			ctx,
 			"DELETE FROM messages WHERE queue = ? AND id = ?",
 			q,
 			id)
 
-		return err
+		if err != nil {
+			return err
+		}
+
+		rows, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+
+		if rows == 0 {
+			s.l.Print("no rows affected, this means that the job has already been deleted which would indicate a too short TTR")
+		}
+
+		return nil
 	})
 
 	return err
 }
 
-func NewStore(db *sql.DB) Store {
-	return &sqliteStore{db: db}
+func NewStore(db *sql.DB, logger *log.Logger) Store {
+	return &sqliteStore{db: db, l: logger}
 }
 
 func tx(ctx context.Context, db *sql.DB, f func(context.Context, *sql.Tx) error) error {

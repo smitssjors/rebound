@@ -44,7 +44,7 @@ func run(ctx context.Context) error {
 	}
 	defer db.Close()
 
-	store := NewStore(db)
+	store := NewStore(db, logger)
 
 	srv := NewServer(logger, store)
 	httpServer := &http.Server{Addr: "0.0.0.0:3000", Handler: srv}
